@@ -9,8 +9,15 @@ import Dashboard from './components/Dashboard';
 import PatientManagement from './components/PatientManagement';
 import TriageSystem from './components/TriageSystem.tsx';
 import BillingSystem from './components/BillingSystem';
+import AppointmentScheduling from './components/AppointmentScheduling';
+import DiagnosticTesting from './components/DiagnosticTesting';
+import Documentation from './components/Documentation';
+import FollowUpScheduling from './components/FollowUpScheduling';
+import SpecialistConsultation from './components/SpecialistConsultation';
+import TreatmentPlanning from './components/TreatmentPlanning';
+import ProtectedRoute from './components/ProtectedRoute';
 import { AuthService, initializeMockData } from './lib/mockServices';
-import { User } from './types';
+import { User, UserRole } from './types';
 
 const queryClient = new QueryClient();
 
@@ -62,18 +69,126 @@ const App = () => {
                             <Routes>
                                 <Route path="/" element={<Navigate to="/dashboard" replace />} />
                                 <Route path="/dashboard" element={<Dashboard user={user} />} />
-                                <Route path="/patients" element={<PatientManagement user={user} />} />
-                                <Route path="/check-in" element={<PatientManagement user={user} />} />
-                                <Route path="/triage" element={<TriageSystem user={user} />} />
-                                <Route path="/queue" element={<TriageSystem user={user} />} />
-                                <Route path="/practitioner" element={<Dashboard user={user} />} />
-                                <Route path="/appointments" element={<Dashboard user={user} />} />
-                                <Route path="/billing" element={<BillingSystem user={user} />} />
-                                <Route path="/payments" element={<BillingSystem user={user} />} />
-                                <Route path="/financial-reports" element={<BillingSystem user={user} />} />
-                                <Route path="/patient-portal" element={<Dashboard user={user} />} />
-                                <Route path="/patient-bills" element={<BillingSystem user={user} />} />
-                                <Route path="/settings" element={<Dashboard user={user} />} />
+                                
+                                {/* Patient Management - All staff roles + patients can view */}
+                                <Route path="/patients" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.PRACTITIONER, UserRole.TRIAGE_NURSE, UserRole.BILLING_STAFF, UserRole.RECEPTIONIST, UserRole.PATIENT]}>
+                                        <PatientManagement user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Check-in - Receptionist and Admin */}
+                                <Route path="/check-in" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.RECEPTIONIST]}>
+                                        <PatientManagement user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Triage System - Triage Nurses and Admin */}
+                                <Route path="/triage" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.TRIAGE_NURSE]}>
+                                        <TriageSystem user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Queue Management - Admin, Triage, Receptionist */}
+                                <Route path="/queue" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.TRIAGE_NURSE, UserRole.RECEPTIONIST, UserRole.PRACTITIONER]}>
+                                        <TriageSystem user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Practitioner Portal */}
+                                <Route path="/practitioner" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.PRACTITIONER]}>
+                                        <Dashboard user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Appointment Scheduling - Admin, Practitioner, Receptionist, Patient */}
+                                <Route path="/appointments" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.PRACTITIONER, UserRole.RECEPTIONIST, UserRole.PATIENT]}>
+                                        <AppointmentScheduling user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Specialist Consultation - Admin, Practitioner */}
+                                <Route path="/specialist-consultation" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.PRACTITIONER]}>
+                                        <SpecialistConsultation user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Diagnostic Testing - Admin, Practitioner, Lab Technician */}
+                                <Route path="/diagnostic-testing" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.PRACTITIONER, UserRole.LAB_TECHNICIAN]}>
+                                        <DiagnosticTesting user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Documentation - Admin, Practitioner */}
+                                <Route path="/documentation" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.PRACTITIONER]}>
+                                        <Documentation user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Follow-Up Scheduling - Admin, Practitioner, Receptionist */}
+                                <Route path="/follow-up-scheduling" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.PRACTITIONER, UserRole.RECEPTIONIST]}>
+                                        <FollowUpScheduling />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Treatment Planning - Admin, Practitioner */}
+                                <Route path="/treatment-planning" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.PRACTITIONER]}>
+                                        <TreatmentPlanning />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Billing System - Admin and Billing Staff */}
+                                <Route path="/billing" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.BILLING_STAFF]}>
+                                        <BillingSystem user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Payments - Admin, Billing Staff, Receptionist */}
+                                <Route path="/payments" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.BILLING_STAFF, UserRole.RECEPTIONIST]}>
+                                        <BillingSystem user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Financial Reports - Admin and Billing Staff */}
+                                <Route path="/financial-reports" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN, UserRole.BILLING_STAFF]}>
+                                        <BillingSystem user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Patient Portal - Patients only */}
+                                <Route path="/patient-portal" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.PATIENT]}>
+                                        <Dashboard user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Patient Bills - Patients only */}
+                                <Route path="/patient-bills" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.PATIENT]}>
+                                        <BillingSystem user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
+                                {/* Settings - Admin only */}
+                                <Route path="/settings" element={
+                                    <ProtectedRoute user={user} allowedRoles={[UserRole.ADMIN]}>
+                                        <Dashboard user={user} />
+                                    </ProtectedRoute>
+                                } />
+                                
                                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
                             </Routes>
                         </Layout>

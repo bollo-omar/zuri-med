@@ -48,7 +48,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             [UserRole.TRIAGE_NURSE]: 'nurse@clinic.com',
             [UserRole.BILLING_STAFF]: 'billing@clinic.com',
             [UserRole.RECEPTIONIST]: 'reception@clinic.com',
-            [UserRole.PATIENT]: 'john.doe@email.com'
+            [UserRole.PATIENT]: 'john.doe@email.com',
+            [UserRole.LAB_TECHNICIAN]: 'labtech@clinic.com'
         };
 
         setEmail(demoAccounts[role]);
@@ -71,6 +72,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             case UserRole.BILLING_STAFF: return 'bg-green-100 text-green-800 border-green-200';
             case UserRole.RECEPTIONIST: return 'bg-orange-100 text-orange-800 border-orange-200';
             case UserRole.PATIENT: return 'bg-gray-100 text-gray-800 border-gray-200';
+            case UserRole.LAB_TECHNICIAN: return 'bg-cyan-100 text-cyan-800 border-cyan-200';
             default: return 'bg-gray-100 text-gray-800 border-gray-200';
         }
     };
@@ -83,6 +85,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             case UserRole.BILLING_STAFF: return 'Billing and payment processing';
             case UserRole.RECEPTIONIST: return 'Patient check-in and scheduling';
             case UserRole.PATIENT: return 'Personal health records and appointments';
+            case UserRole.LAB_TECHNICIAN: return 'Lab testing and diagnostics';
             default: return 'Standard user access';
         }
     };
@@ -210,6 +213,16 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                                     <User className="w-3 h-3 mr-1" />
                                     Patient
                                 </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleDemoLogin(UserRole.LAB_TECHNICIAN)}
+                                    disabled={loading}
+                                >
+                                    <User className="w-3 h-3 mr-1" />
+                                    Lab Tech
+                                </Button>
                             </div>
                         </div>
 
@@ -250,6 +263,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                                         {role === UserRole.BILLING_STAFF && 'Billing Specialist'}
                                         {role === UserRole.RECEPTIONIST && 'Front Desk Receptionist'}
                                         {role === UserRole.PATIENT && 'Patient Portal'}
+                                        {role === UserRole.LAB_TECHNICIAN && 'Lab Technician'}
                                     </p>
                                     <p className="text-xs text-gray-600">
                                         {getRoleDescription(role)}

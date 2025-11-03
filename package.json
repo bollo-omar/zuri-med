@@ -1,6 +1,6 @@
 {
   "name": "shadcnui",
-  "type": "commonjs",
+  "type": "module",
   "packageManager": "pnpm@8.10.0",
   "scripts": {
     "dev": "vite",

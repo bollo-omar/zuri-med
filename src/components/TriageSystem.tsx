@@ -1,19 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge.tsx';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Separator } from '@/components/ui/separator';
+
 import { Progress } from '@/components/ui/progress';
 import {
-    Heart, AlertTriangle, Clock, Thermometer, Activity, Gauge,
+    Heart, AlertTriangle, Clock,
     User as UserIcon, Stethoscope, Eye, CheckCircle, XCircle, Timer,
     ArrowUp, ArrowDown, Minus, Plus, Save, RefreshCw
 } from 'lucide-react';
@@ -48,19 +47,14 @@ const TriageSystem: React.FC<TriageSystemProps> = ({ user }) => {
     const [queue, setQueue] = useState<QueueItem[]>([]);
     const [patients, setPatients] = useState<Patient[]>([]);
     const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+    
     const [showAssessment, setShowAssessment] = useState(false);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
-    useEffect(() => {
-        loadTriageData();
 
-        // Auto-refresh every 30 seconds
-        const interval = setInterval(loadTriageData, 30000);
-        return () => clearInterval(interval);
-    }, []);
 
-    const loadTriageData = async () => {
+    const loadTriageData = useCallback(async () => {
         try {
             setRefreshing(true);
             const [queueResponse, patientsResponse] = await Promise.all([
@@ -68,7 +62,18 @@ const TriageSystem: React.FC<TriageSystemProps> = ({ user }) => {
                 PatientService.getPatients(1, 100)
             ]);
 
-            if (queueResponse.success) setQueue(queueResponse.data);
+            const queueData = queueResponse.success ? queueResponse.data : [];
+
+            // Filter queue based on user role
+            // Triage nurses and admin see all queue items (already protected at route level)
+            // But we ensure only authorized roles can access
+            if (user.role === UserRole.TRIAGE_NURSE || user.role === UserRole.ADMIN) {
+                setQueue(queueData);
+            } else {
+                // Should not reach here due to route protection, but safety check
+                setQueue([]);
+            }
+
             if (patientsResponse.success) setPatients(patientsResponse.data.data);
         } catch (error) {
             toast.error('Failed to load triage data');
@@ -76,7 +81,15 @@ const TriageSystem: React.FC<TriageSystemProps> = ({ user }) => {
             setLoading(false);
             setRefreshing(false);
         }
-    };
+    }, [user.role]);
+
+    useEffect(() => {
+        loadTriageData();
+
+        // Auto-refresh every 30 seconds
+        const interval = setInterval(loadTriageData, 30000);
+        return () => clearInterval(interval);
+    }, [loadTriageData]);
 
     const getPriorityColor = (priority: TriagePriority) => {
         switch (priority) {
@@ -142,6 +155,33 @@ const TriageSystem: React.FC<TriageSystemProps> = ({ user }) => {
         });
 
         const [symptomInput, setSymptomInput] = useState('');
+        const [shouldResetAssessment, setShouldResetAssessment] = useState(false);
+        
+        // Only reset form when patient changes or after successful submission
+        useEffect(() => {
+            if (selectedPatient && selectedPatient.id !== assessment.patientId && !shouldResetAssessment) {
+                setAssessment({
+                    patientId: selectedPatient.id,
+                    appointmentId: '',
+                    priority: TriagePriority.NON_URGENT,
+                    chiefComplaint: '',
+                    symptoms: [],
+                    painLevel: 0,
+                    assessmentNotes: '',
+                    estimatedWaitTime: 30,
+                    vitalSigns: {
+                        temperature: undefined,
+                        bloodPressureSystolic: undefined,
+                        bloodPressureDiastolic: undefined,
+                        heartRate: undefined,
+                        respiratoryRate: undefined,
+                        oxygenSaturation: undefined,
+                        weight: undefined,
+                        height: undefined
+                    }
+                });
+            }
+        }, [selectedPatient?.id]);
 
         const handleAddSymptom = () => {
             if (symptomInput.trim()) {
@@ -189,8 +229,34 @@ const TriageSystem: React.FC<TriageSystemProps> = ({ user }) => {
                 const response = await TriageService.createAssessment(assessmentData);
                 if (response.success) {
                     toast.success('Triage assessment completed successfully');
+                    setShouldResetAssessment(true);
                     setShowAssessment(false);
                     loadTriageData();
+                    // Reset form after a brief delay to allow dialog to close
+                    setTimeout(() => {
+                        setAssessment({
+                            patientId: selectedPatient?.id || '',
+                            appointmentId: '',
+                            priority: TriagePriority.NON_URGENT,
+                            chiefComplaint: '',
+                            symptoms: [],
+                            painLevel: 0,
+                            assessmentNotes: '',
+                            estimatedWaitTime: 30,
+                            vitalSigns: {
+                                temperature: undefined,
+                                bloodPressureSystolic: undefined,
+                                bloodPressureDiastolic: undefined,
+                                heartRate: undefined,
+                                respiratoryRate: undefined,
+                                oxygenSaturation: undefined,
+                                weight: undefined,
+                                height: undefined
+                            }
+                        });
+                        setSymptomInput('');
+                        setShouldResetAssessment(false);
+                    }, 100);
                 }
             } catch (error) {
                 toast.error('Failed to complete triage assessment');
@@ -198,7 +264,13 @@ const TriageSystem: React.FC<TriageSystemProps> = ({ user }) => {
         };
 
         return (
-            <Dialog open={showAssessment} onOpenChange={setShowAssessment}>
+            <Dialog open={showAssessment} onOpenChange={(open) => {
+                setShowAssessment(open);
+                // Only reset if user explicitly cancels and form wasn't successfully submitted
+                if (!open && !shouldResetAssessment) {
+                    // Don't reset - preserve form data in case user reopens
+                }
+            }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
                 <DialogTitle>Triage Assessment</DialogTitle>
@@ -234,7 +306,12 @@ const TriageSystem: React.FC<TriageSystemProps> = ({ user }) => {
             placeholder="Add symptom"
         value={symptomInput}
         onChange={(e) => setSymptomInput(e.target.value)}
-        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddSymptom())}
+        onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAddSymptom();
+            }
+        }}
         />
         <Button type="button" onClick={handleAddSymptom}>
         <Plus className="w-4 h-4" />
@@ -416,7 +493,7 @@ const TriageSystem: React.FC<TriageSystemProps> = ({ user }) => {
                         ? getPriorityColor(priority)
                         : 'border-gray-200 hover:border-gray-300'
                 }`}
-        onClick={() => setAssessment({...assessment, priority})}
+        onClick={() => setAssessment({...assessment, priority: priority})}
     >
         <div className="flex items-center justify-between mb-2">
         <span className="font-semibold">{getPriorityLabel(priority)}</span>
@@ -531,6 +608,18 @@ const TriageSystem: React.FC<TriageSystemProps> = ({ user }) => {
         </p>
         </div>
         </div>
+
+        {item.practitionerName && (
+            <div className="mb-3 p-2 bg-blue-50 rounded-md border border-blue-200">
+                <p className="text-xs text-gray-600 mb-1">Assigned Practitioner</p>
+                <p className="text-sm font-semibold text-blue-900">{item.practitionerName}</p>
+                {item.estimatedAppointmentTime && (
+                    <p className="text-xs text-gray-600 mt-1">
+                        Est. appointment: {new Date(item.estimatedAppointmentTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                )}
+            </div>
+        )}
 
         {patient.medicalHistory.conditions.length > 0 && (
             <div className="mb-3">

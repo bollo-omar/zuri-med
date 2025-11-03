@@ -2,6 +2,7 @@ import {
     User, Patient, Appointment, TriageAssessment, VitalSigns, Invoice, Payment,
     QueueItem, DashboardMetrics, TreatmentRecord, InsuranceClaim, Prescription,
     UserRole, TriagePriority, AppointmentStatus, PaymentStatus, PaymentMethod,
+    InsuranceStatus,
     ApiResponse, PaginatedResponse, PatientRegistrationForm, CheckInForm, PaymentForm
 } from '../types';
 
@@ -9,11 +10,12 @@ import {
     mockUsers, mockPatients, mockAppointments, mockTriageAssessments,
     mockVitalSigns, mockInvoices, mockQueue, mockDashboardMetrics,
     mockTreatmentRecords, mockInsuranceClaims, mockPrescriptions,
-    mockServiceItems, mockDiagnosisCodes, mockPractitioners
+    mockServiceItems, mockDiagnosisCodes, mockPractitioners,
+    getPractitionerById
 } from './mockData';
 
 // Export mock data for components to use
-export { mockServiceItems, mockDiagnosisCodes, mockInvoices };
+export { mockServiceItems, mockDiagnosisCodes, mockInvoices, mockPractitioners, mockTreatmentRecords, mockPatients, mockVitalSigns };
 
 // Simulate network delay
 const delay = (ms: number = 500) => new Promise(resolve => setTimeout(resolve, ms));
@@ -214,7 +216,7 @@ export class PatientService {
                 subscriberName: `${patientData.firstName} ${patientData.lastName}`,
                 relationship: 'Self',
                 isPrimary: true,
-                status: 'active' as const,
+                status: InsuranceStatus.ACTIVE,
                 effectiveDate: new Date().toISOString().split('T')[0]
             }] : [],
             createdAt: new Date().toISOString(),
@@ -224,7 +226,7 @@ export class PatientService {
         patients.push(newPatient);
         localStorage.setItem(STORAGE_KEYS.PATIENTS, JSON.stringify(patients));
 
-        logAudit('CREATE', 'patient', newPatient.id, patientData);
+        logAudit('CREATE', 'patient', newPatient.id, patientData as unknown as Record<string, unknown>);
 
         return {
             success: true,
@@ -259,6 +261,12 @@ export class PatientService {
             success: true,
             data: patients[patientIndex]
         };
+    }
+
+    static async getPatientName(patientId: string): Promise<string | null> {
+        const patients = JSON.parse(localStorage.getItem(STORAGE_KEYS.PATIENTS) || '[]');
+        const patient = patients.find((p: Patient) => p.id === patientId);
+        return patient ? `${patient.firstName} ${patient.lastName}` : null;
     }
 }
 
@@ -305,7 +313,58 @@ export class AppointmentService {
         // Add to queue
         await QueueService.addToQueue(appointmentId, TriagePriority.NON_URGENT);
 
-        logAudit('CHECK_IN', 'appointment', appointmentId, checkInData);
+        logAudit('CHECK_IN', 'appointment', appointmentId, checkInData as unknown as Record<string, unknown>);
+
+        return {
+            success: true,
+            data: appointments[appointmentIndex]
+        };
+    }
+
+    static async createAppointment(appointmentData: Omit<Appointment, 'id' | 'createdAt' | 'updatedAt'>): Promise<ApiResponse<Appointment>> {
+        await delay();
+
+        const appointments = JSON.parse(localStorage.getItem(STORAGE_KEYS.APPOINTMENTS) || '[]');
+        const newAppointment: Appointment = {
+            ...appointmentData,
+            id: `appt-${Date.now()}`,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        appointments.push(newAppointment);
+        localStorage.setItem(STORAGE_KEYS.APPOINTMENTS, JSON.stringify(appointments));
+
+        logAudit('CREATE', 'appointment', newAppointment.id, appointmentData);
+
+        return {
+            success: true,
+            data: newAppointment
+        };
+    }
+
+    static async updateAppointmentStatus(appointmentId: string, status: AppointmentStatus): Promise<ApiResponse<Appointment>> {
+        await delay();
+
+        const appointments = JSON.parse(localStorage.getItem(STORAGE_KEYS.APPOINTMENTS) || '[]');
+        const appointmentIndex = appointments.findIndex((a: Appointment) => a.id === appointmentId);
+
+        if (appointmentIndex === -1) {
+            return {
+                success: false,
+                error: 'Appointment not found'
+            };
+        }
+
+        appointments[appointmentIndex] = {
+            ...appointments[appointmentIndex],
+            status,
+            updatedAt: new Date().toISOString()
+        };
+
+        localStorage.setItem(STORAGE_KEYS.APPOINTMENTS, JSON.stringify(appointments));
+
+        logAudit('UPDATE_STATUS', 'appointment', appointmentId, { status });
 
         return {
             success: true,
@@ -358,6 +417,10 @@ export class TriageService {
             data: assessment
         };
     }
+
+    static async getTriageAssessment(appointmentId: string): Promise<ApiResponse<TriageAssessment>> {
+        return this.getAssessmentByAppointment(appointmentId);
+    }
 }
 
 // Queue Service
@@ -366,13 +429,34 @@ export class QueueService {
         await delay();
 
         const queue = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
+        const appointments = JSON.parse(localStorage.getItem(STORAGE_KEYS.APPOINTMENTS) || '[]');
 
-        // Update wait times
-        const updatedQueue = queue.map((item: QueueItem, index: number) => ({
-            ...item,
-            position: index + 1,
-            currentWaitTime: Math.floor((Date.now() - new Date(item.checkInTime).getTime()) / 60000)
-        }));
+        // Update positions and recalculate based on priority
+        this.sortQueueByPriority(queue);
+
+        // Update wait times and calculate estimated appointment times
+        const updatedQueue = queue.map((item: QueueItem, index: number) => {
+            const appointment = appointments.find((a: Appointment) => a.id === item.appointmentId);
+            const practitioner = item.assignedPractitioner ? getPractitionerById(item.assignedPractitioner) : null;
+            
+            // Calculate estimated appointment time
+            const estimatedAppointmentTime = this.calculateEstimatedAppointmentTime(
+                item,
+                appointment,
+                index,
+                queue
+            );
+
+            return {
+                ...item,
+                position: index + 1,
+                currentWaitTime: Math.floor((Date.now() - new Date(item.checkInTime).getTime()) / 60000),
+                estimatedAppointmentTime,
+                practitionerName: practitioner 
+                    ? `${practitioner.title} ${practitioner.firstName} ${practitioner.lastName}`
+                    : undefined
+            };
+        });
 
         return {
             success: true,
@@ -394,7 +478,11 @@ export class QueueService {
             };
         }
 
-        const queueItem: QueueItem = {
+        // Set assigned practitioner from appointment
+        const assignedPractitioner = appointment.practitionerId;
+        const practitioner = assignedPractitioner ? getPractitionerById(assignedPractitioner) : null;
+
+        queue.push({
             id: `queue-${Date.now()}`,
             patientId: appointment.patientId,
             appointmentId,
@@ -403,18 +491,40 @@ export class QueueService {
             checkInTime: appointment.checkInTime || new Date().toISOString(),
             estimatedWaitTime: this.calculateEstimatedWaitTime(priority),
             currentWaitTime: 0,
-            position: queue.length + 1
-        };
+            position: queue.length + 1,
+            assignedPractitioner,
+            practitionerName: practitioner 
+                ? `${practitioner.title} ${practitioner.firstName} ${practitioner.lastName}`
+                : undefined
+        });
 
-        queue.push(queueItem);
+        // Sort queue and recalculate positions and estimated times
         this.sortQueueByPriority(queue);
-        localStorage.setItem(STORAGE_KEYS.QUEUE, JSON.stringify(queue));
+        
+        // Recalculate estimated appointment times for all items
+        const updatedQueue = queue.map((item: QueueItem, index: number) => {
+            const itemAppointment = appointments.find((a: Appointment) => a.id === item.appointmentId);
+            return {
+                ...item,
+                position: index + 1,
+                estimatedAppointmentTime: this.calculateEstimatedAppointmentTime(
+                    item,
+                    itemAppointment,
+                    index,
+                    queue
+                )
+            };
+        });
 
-        logAudit('ADD_TO_QUEUE', 'queue', queueItem.id, { appointmentId, priority });
+        localStorage.setItem(STORAGE_KEYS.QUEUE, JSON.stringify(updatedQueue));
+
+        const queueItem = updatedQueue.find((item: QueueItem) => item.appointmentId === appointmentId);
+        
+        logAudit('ADD_TO_QUEUE', 'queue', queueItem?.id || '', { appointmentId, priority });
 
         return {
             success: true,
-            data: queueItem
+            data: queueItem || updatedQueue[updatedQueue.length - 1]
         };
     }
 
@@ -422,6 +532,7 @@ export class QueueService {
         await delay();
 
         const queue = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
+        const appointments = JSON.parse(localStorage.getItem(STORAGE_KEYS.APPOINTMENTS) || '[]');
         const queueIndex = queue.findIndex((item: QueueItem) => item.appointmentId === appointmentId);
 
         if (queueIndex === -1) {
@@ -437,14 +548,32 @@ export class QueueService {
             estimatedWaitTime: this.calculateEstimatedWaitTime(priority)
         };
 
+        // Re-sort and recalculate positions and estimated times
         this.sortQueueByPriority(queue);
-        localStorage.setItem(STORAGE_KEYS.QUEUE, JSON.stringify(queue));
+        
+        const updatedQueue = queue.map((item: QueueItem, index: number) => {
+            const appointment = appointments.find((a: Appointment) => a.id === item.appointmentId);
+            return {
+                ...item,
+                position: index + 1,
+                estimatedAppointmentTime: this.calculateEstimatedAppointmentTime(
+                    item,
+                    appointment,
+                    index,
+                    queue
+                )
+            };
+        });
 
-        logAudit('UPDATE_PRIORITY', 'queue', queue[queueIndex].id, { priority });
+        localStorage.setItem(STORAGE_KEYS.QUEUE, JSON.stringify(updatedQueue));
+
+        const updatedItem = updatedQueue.find((item: QueueItem) => item.appointmentId === appointmentId);
+
+        logAudit('UPDATE_PRIORITY', 'queue', updatedItem?.id || '', { priority });
 
         return {
             success: true,
-            data: queue[queueIndex]
+            data: updatedItem || updatedQueue[queueIndex]
         };
     }
 
@@ -469,6 +598,48 @@ export class QueueService {
             [TriagePriority.NON_URGENT]: 45
         };
         return baseTimes[priority];
+    }
+
+    private static calculateEstimatedAppointmentTime(
+        queueItem: QueueItem,
+        appointment: Appointment | undefined,
+        position: number,
+        queue: QueueItem[]
+    ): string | undefined {
+        if (!appointment || !queueItem.assignedPractitioner) {
+            return undefined;
+        }
+
+        // Get average appointment duration (default to 30 minutes if not specified)
+        const averageDuration = appointment.duration || 30;
+
+        // Calculate time for all patients ahead in queue with same practitioner
+        const samePractitionerQueue = queue
+            .filter(item => 
+                item.assignedPractitioner === queueItem.assignedPractitioner &&
+                queue.indexOf(item) < position &&
+                item.status !== AppointmentStatus.COMPLETED &&
+                item.status !== AppointmentStatus.CANCELLED
+            );
+
+        // Calculate total time needed for patients ahead
+        let totalWaitMinutes = 0;
+        samePractitionerQueue.forEach(item => {
+            const itemAppointment = JSON.parse(localStorage.getItem(STORAGE_KEYS.APPOINTMENTS) || '[]')
+                .find((a: Appointment) => a.id === item.appointmentId);
+            const itemDuration = itemAppointment?.duration || averageDuration;
+            totalWaitMinutes += itemDuration;
+        });
+
+        // Add buffer time (5 minutes between appointments)
+        const bufferTime = samePractitionerQueue.length * 5;
+        totalWaitMinutes += bufferTime;
+
+        // Calculate estimated time from now
+        const now = new Date();
+        const estimatedTime = new Date(now.getTime() + totalWaitMinutes * 60000);
+
+        return estimatedTime.toISOString();
     }
 
     private static sortQueueByPriority(queue: QueueItem[]): void {
@@ -496,36 +667,102 @@ export class QueueService {
 
 // Billing Service
 export class BillingService {
-    static async createInvoice(appointmentId: string, services: Array<{ serviceId: string; quantity: number; unitPrice: number; totalPrice: number; serviceName: string; cptCode: string; insuranceCovered: number; patientPortion: number }>): Promise<ApiResponse<Invoice>> {
+    static async createInvoice(
+        services: Array<{ serviceId: string; quantity: number; unitPrice: number; totalPrice: number; serviceName: string; cptCode: string; insuranceCovered: number; patientPortion: number }>,
+        patientId?: string,
+        appointmentId?: string
+    ): Promise<ApiResponse<Invoice>> {
         await delay();
 
         const invoices = JSON.parse(localStorage.getItem(STORAGE_KEYS.INVOICES) || '[]');
         const appointments = JSON.parse(localStorage.getItem(STORAGE_KEYS.APPOINTMENTS) || '[]');
 
-        const appointment = appointments.find((a: Appointment) => a.id === appointmentId);
-        if (!appointment) {
+        let finalPatientId: string;
+        let finalAppointmentId: string | undefined = appointmentId;
+
+        // If appointmentId is provided, try to use it to get patientId
+        if (appointmentId) {
+            const appointment = appointments.find((a: Appointment) => a.id === appointmentId);
+            if (appointment) {
+                finalPatientId = appointment.patientId;
+                finalAppointmentId = appointmentId;
+            } else if (patientId) {
+                // Appointment not found but patientId provided, use patientId directly
+                finalPatientId = patientId;
+            } else {
+                return {
+                    success: false,
+                    error: 'Appointment not found and no patientId provided'
+                };
+            }
+        } else if (patientId) {
+            // No appointmentId, use provided patientId directly (for mock invoices)
+            finalPatientId = patientId;
+        } else {
             return {
                 success: false,
-                error: 'Appointment not found'
+                error: 'Either patientId or appointmentId must be provided'
             };
         }
+
+        // Get patient data to check insurance balance
+        const patients = JSON.parse(localStorage.getItem(STORAGE_KEYS.PATIENTS) || '[]');
+        const patient = patients.find((p: Patient) => p.id === finalPatientId);
+        
+        if (!patient) {
+            return {
+                success: false,
+                error: 'Patient not found'
+            };
+        }
+
+        // Get primary insurance
+        const primaryInsurance = patient.insurance?.find((ins) => ins.isPrimary && ins.status === InsuranceStatus.ACTIVE);
+        const insuranceBalance = primaryInsurance?.balance ?? 0;
 
         const subtotal = services.reduce((sum, service) => sum + service.totalPrice, 0);
         const tax = 0; // No tax for medical services
         const total = subtotal + tax;
 
-        // Mock insurance calculation (80% coverage)
-        const insuranceCoverage = total * 0.8;
+        // Calculate insurance coverage based on actual balance
+        // If balance is zero or undefined, patient pays 100%
+        let insuranceCoverage = 0;
+        if (insuranceBalance > 0) {
+            // Insurance covers up to the available balance or total bill, whichever is less
+            insuranceCoverage = Math.min(insuranceBalance, total);
+        }
         const patientResponsibility = total - insuranceCoverage;
+
+        // Update services with recalculated insurance coverage
+        // Distribute insurance coverage proportionally across services
+        const updatedServices = services.map((service) => {
+            const serviceTotal = service.totalPrice;
+            let serviceInsuranceCovered = 0;
+            let servicePatientPortion = serviceTotal;
+
+            if (insuranceBalance > 0 && total > 0) {
+                // Calculate what portion of total this service represents
+                const serviceProportion = serviceTotal / total;
+                // Apply insurance coverage proportionally
+                serviceInsuranceCovered = Math.min(insuranceCoverage * serviceProportion, serviceTotal);
+                servicePatientPortion = serviceTotal - serviceInsuranceCovered;
+            }
+
+            return {
+                ...service,
+                insuranceCovered: serviceInsuranceCovered,
+                patientPortion: servicePatientPortion
+            };
+        });
 
         const newInvoice: Invoice = {
             id: `inv-${Date.now()}`,
-            patientId: appointment.patientId,
-            appointmentId,
+            patientId: finalPatientId,
+            appointmentId: finalAppointmentId || '',
             invoiceNumber: `INV-${new Date().getFullYear()}-${String(invoices.length + 1).padStart(3, '0')}`,
             issueDate: new Date().toISOString().split('T')[0],
             dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-            services,
+            services: updatedServices,
             subtotal,
             tax,
             total,
@@ -540,7 +777,7 @@ export class BillingService {
         invoices.push(newInvoice);
         localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(invoices));
 
-        logAudit('CREATE', 'invoice', newInvoice.id, { appointmentId, services });
+        logAudit('CREATE', 'invoice', newInvoice.id, { appointmentId: finalAppointmentId, patientId: finalPatientId, services });
 
         return {
             success: true,
@@ -561,6 +798,104 @@ export class BillingService {
         return {
             success: true,
             data: filteredInvoices
+        };
+    }
+
+    static async updateInvoice(
+        invoiceId: string,
+        updateData: {
+            services?: Array<{ serviceId: string; quantity: number; unitPrice: number; totalPrice: number; serviceName: string; cptCode: string; insuranceCovered: number; patientPortion: number }>;
+            issueDate?: string;
+            dueDate?: string;
+            status?: PaymentStatus;
+        }
+    ): Promise<ApiResponse<Invoice>> {
+        await delay();
+
+        const invoices = JSON.parse(localStorage.getItem(STORAGE_KEYS.INVOICES) || '[]');
+        const invoiceIndex = invoices.findIndex((inv: Invoice) => inv.id === invoiceId);
+
+        if (invoiceIndex === -1) {
+            return {
+                success: false,
+                error: 'Invoice not found'
+            };
+        }
+
+        const existingInvoice = invoices[invoiceIndex];
+        
+        // If services were updated, recalculate insurance coverage based on current balance
+        let updatedServices = updateData.services;
+        let insuranceCoverage = 0;
+        let patientResponsibility = 0;
+        
+        if (updateData.services !== undefined) {
+            // Get patient data to check insurance balance
+            const patients = JSON.parse(localStorage.getItem(STORAGE_KEYS.PATIENTS) || '[]');
+            const patient = patients.find((p: Patient) => p.id === existingInvoice.patientId);
+            
+            // Get primary insurance
+            const primaryInsurance = patient?.insurance?.find((ins) => ins.isPrimary && ins.status === InsuranceStatus.ACTIVE);
+            const insuranceBalance = primaryInsurance?.balance ?? 0;
+            
+            const subtotal = updateData.services.reduce((sum, service) => sum + service.totalPrice, 0);
+            const tax = 0; // No tax for medical services
+            const total = subtotal + tax;
+            
+            // Calculate insurance coverage based on actual balance
+            // If balance is zero or undefined, patient pays 100%
+            if (insuranceBalance > 0) {
+                // Insurance covers up to the available balance or total bill, whichever is less
+                insuranceCoverage = Math.min(insuranceBalance, total);
+            }
+            patientResponsibility = total - insuranceCoverage;
+            
+            // Update services with recalculated insurance coverage
+            // Distribute insurance coverage proportionally across services
+            updatedServices = updateData.services.map((service) => {
+                const serviceTotal = service.totalPrice;
+                let serviceInsuranceCovered = 0;
+                let servicePatientPortion = serviceTotal;
+                
+                if (insuranceBalance > 0 && total > 0) {
+                    // Calculate what portion of total this service represents
+                    const serviceProportion = serviceTotal / total;
+                    // Apply insurance coverage proportionally
+                    serviceInsuranceCovered = Math.min(insuranceCoverage * serviceProportion, serviceTotal);
+                    servicePatientPortion = serviceTotal - serviceInsuranceCovered;
+                }
+                
+                return {
+                    ...service,
+                    insuranceCovered: serviceInsuranceCovered,
+                    patientPortion: servicePatientPortion
+                };
+            });
+        }
+        
+        const updatedInvoice: Invoice = {
+            ...existingInvoice,
+            ...(updateData.services !== undefined && {
+                services: updatedServices,
+                subtotal: updatedServices.reduce((sum, service) => sum + service.totalPrice, 0),
+                total: updatedServices.reduce((sum, service) => sum + service.totalPrice, 0),
+                insuranceCoverage,
+                patientResponsibility
+            }),
+            ...(updateData.issueDate !== undefined && { issueDate: updateData.issueDate }),
+            ...(updateData.dueDate !== undefined && { dueDate: updateData.dueDate }),
+            ...(updateData.status !== undefined && { status: updateData.status }),
+            updatedAt: new Date().toISOString()
+        };
+
+        invoices[invoiceIndex] = updatedInvoice;
+        localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(invoices));
+
+        logAudit('UPDATE', 'invoice', invoiceId, updateData);
+
+        return {
+            success: true,
+            data: updatedInvoice
         };
     }
 }
@@ -602,7 +937,7 @@ export class PaymentService {
             localStorage.setItem(STORAGE_KEYS.INVOICES, JSON.stringify(invoices));
         }
 
-        logAudit('PROCESS_PAYMENT', 'payment', payment.id, paymentData);
+        logAudit('PROCESS_PAYMENT', 'payment', payment.id, paymentData as unknown as Record<string, unknown>);
 
         return {
             success: true,
@@ -694,6 +1029,18 @@ export class DashboardService {
 // Helper function to get current user
 function getCurrentUser(): User | null {
     return AuthService.getCurrentUser();
+}
+
+// Practitioner Helper Service
+export class PractitionerService {
+    static getPractitionerName(practitionerId: string): string | null {
+        const practitioner = getPractitionerById(practitionerId);
+        return practitioner ? `${practitioner.title} ${practitioner.firstName} ${practitioner.lastName}` : null;
+    }
+
+    static getPractitionerInfo(practitionerId: string) {
+        return getPractitionerById(practitionerId);
+    }
 }
 
 // Real-time updates simulation

@@ -5,7 +5,8 @@ export enum UserRole {
     TRIAGE_NURSE = 'triage_nurse',
     BILLING_STAFF = 'billing_staff',
     RECEPTIONIST = 'receptionist',
-    PATIENT = 'patient'
+    PATIENT = 'patient',
+    LAB_TECHNICIAN = 'lab_technician'
 }
 
 export interface User {
@@ -15,6 +16,8 @@ export interface User {
     lastName: string;
     role: UserRole;
     phone: string;
+    department?: string;
+    specialization?: string;
     isActive: boolean;
     createdAt: string;
     lastLogin?: string;
@@ -93,6 +96,7 @@ export interface Insurance {
     copay?: number;
     deductible?: number;
     coinsurance?: number;
+    balance?: number; // Available insurance coverage amount (in currency units)
 }
 
 export interface Patient {
@@ -193,6 +197,38 @@ export interface QueueItem {
     currentWaitTime: number;
     assignedPractitioner?: string;
     position: number;
+    estimatedAppointmentTime?: string; // ISO timestamp
+    practitionerName?: string; // For quick display access
+}
+
+// Diagnostic Testing
+export enum DiagnosticTestType {
+    LAB = 'lab',
+    IMAGING = 'imaging'
+}
+
+export enum DiagnosticTestStatus {
+    ORDERED = 'ordered',
+    IN_PROGRESS = 'in_progress',
+    COMPLETED = 'completed',
+    CANCELLED = 'cancelled'
+}
+
+export interface DiagnosticTest {
+    id: string;
+    patientId: string;
+    appointmentId: string;
+    name: string;
+    type: DiagnosticTestType;
+    status: DiagnosticTestStatus;
+    orderedBy: string;
+    orderedDate: string;
+    clinicalInfo?: string;
+    performedBy?: string;
+    performedDate?: string;
+    result?: string;
+    notes?: string;
+    attachmentUrl?: string;
 }
 
 // Practitioner Management
@@ -204,6 +240,59 @@ export interface WorkingHours {
     friday: { start: string; end: string; isWorking: boolean };
     saturday: { start: string; end: string; isWorking: boolean };
     sunday: { start: string; end: string; isWorking: boolean };
+}
+
+// Billing & Payment
+export enum PaymentMethod {
+    CASH = 'cash',
+    MPESA = 'mpesa',
+    CARD = 'card',
+    INSURANCE = 'insurance',
+    BANK_TRANSFER = 'bank_transfer'
+}
+
+export enum PaymentStatus {
+    PENDING = 'pending',
+    PAID = 'paid',
+    PARTIAL = 'partial',
+    WAIVED = 'waived',
+    REFUNDED = 'refunded'
+}
+
+export interface BillItem {
+    id: string;
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+    category: string;
+    serviceDate: string;
+}
+
+export interface Bill {
+    id: string;
+    patientId: string;
+    appointmentId?: string;
+    items: BillItem[];
+    subtotal: number;
+    discount?: number;
+    tax?: number;
+    total: number;
+    status: PaymentStatus;
+    createdAt: string;
+    dueDate?: string;
+    paymentMethod?: PaymentMethod;
+    paymentDate?: string;
+    paymentReference?: string;
+    insuranceClaim?: {
+        insuranceId: string;
+        claimNumber: string;
+        approvalCode?: string;
+        coverageAmount: number;
+        patientResponsibility: number;
+        status: 'pending' | 'approved' | 'rejected' | 'partial'
+    };
+    notes?: string;
 }
 
 export interface Practitioner {
@@ -262,12 +351,10 @@ export enum PaymentStatus {
 }
 
 export enum PaymentMethod {
-    CREDIT_CARD = 'credit_card',
-    DEBIT_CARD = 'debit_card',
+    M_PESA = 'm_pesa',
+    CARD = 'card',
     CASH = 'cash',
-    CHECK = 'check',
-    INSURANCE = 'insurance',
-    BANK_TRANSFER = 'bank_transfer'
+    INSURANCE = 'insurance'
 }
 
 export interface Payment {
@@ -403,6 +490,7 @@ export interface PaymentForm {
     expiryDate?: string;
     cvv?: string;
     cardholderName?: string;
+    phoneNumber?: string; // For M-Pesa payments
     notes?: string;
 }
 

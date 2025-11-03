@@ -78,6 +78,44 @@ export const mockUsers: User[] = [
         createdAt: '2024-01-01T00:00:00Z',
         lastLogin: '2024-10-23T06:00:00Z',
         permissions: ['patient_portal']
+    },
+    {
+        id: 'user-7',
+        email: 'labtech@clinic.com',
+        firstName: 'David',
+        lastName: 'Kim',
+        role: UserRole.LAB_TECHNICIAN,
+        phone: '(555) 789-0123',
+        isActive: true,
+        createdAt: '2024-01-01T00:00:00Z',
+        lastLogin: '2024-10-23T08:20:00Z',
+        permissions: ['lab_tests', 'patient_view']
+    },
+    {
+        id: 'user-8',
+        email: 'radiologist@clinic.com',
+        firstName: 'Dr. Emily',
+        lastName: 'Anderson',
+        role: UserRole.PRACTITIONER,
+        specialization: 'Radiology',
+        phone: '(555) 890-1234',
+        isActive: true,
+        createdAt: '2024-01-01T00:00:00Z',
+        lastLogin: '2024-10-23T08:10:00Z',
+        permissions: ['imaging', 'patient_view', 'diagnostic_reports']
+    },
+    {
+        id: 'user-9',
+        email: 'pharmacist@clinic.com',
+        firstName: 'Dr. Robert',
+        lastName: 'Martinez',
+        role: UserRole.PRACTITIONER,
+        specialization: 'Pharmacy',
+        phone: '(555) 901-2345',
+        isActive: true,
+        createdAt: '2024-01-01T00:00:00Z',
+        lastLogin: '2024-10-23T08:05:00Z',
+        permissions: ['prescriptions', 'medication_dispense', 'patient_view']
     }
 ];
 
@@ -148,7 +186,8 @@ export const mockPatients: Patient[] = [
                 effectiveDate: '2024-01-01',
                 copay: 25,
                 deductible: 1500,
-                coinsurance: 20
+                coinsurance: 20,
+                balance: 50000.00 // Available insurance coverage
             }
         ],
         createdAt: '2024-01-01T00:00:00Z',
@@ -198,7 +237,8 @@ export const mockPatients: Patient[] = [
                 effectiveDate: '2024-01-01',
                 copay: 30,
                 deductible: 2000,
-                coinsurance: 25
+                coinsurance: 25,
+                balance: 25000.00 // Available insurance coverage
             }
         ],
         createdAt: '2024-02-15T00:00:00Z',
@@ -259,7 +299,8 @@ export const mockPatients: Patient[] = [
                 effectiveDate: '2024-01-01',
                 copay: 20,
                 deductible: 1000,
-                coinsurance: 15
+                coinsurance: 15,
+                balance: 0.00 // Zero balance - patient pays all
             }
         ],
         createdAt: '2024-03-01T00:00:00Z',
@@ -318,6 +359,7 @@ export const mockPractitioners: Practitioner[] = [
 ];
 
 // Mock Service Items
+// Prices converted from USD to KES (1 USD = 130 KES)
 export const mockServiceItems: ServiceItem[] = [
     {
         id: 'service-1',
@@ -325,7 +367,7 @@ export const mockServiceItems: ServiceItem[] = [
         name: 'Office Visit - Established Patient',
         description: 'Established patient office visit, moderate complexity',
         category: 'Office Visits',
-        price: 150.00,
+        price: 19500.00,
         duration: 30,
         isActive: true
     },
@@ -335,7 +377,7 @@ export const mockServiceItems: ServiceItem[] = [
         name: 'Office Visit - Detailed',
         description: 'Established patient office visit, detailed examination',
         category: 'Office Visits',
-        price: 200.00,
+        price: 26000.00,
         duration: 45,
         isActive: true
     },
@@ -345,7 +387,7 @@ export const mockServiceItems: ServiceItem[] = [
         name: 'Comprehensive Metabolic Panel',
         description: 'Blood chemistry panel with 14 tests',
         category: 'Laboratory',
-        price: 75.00,
+        price: 9750.00,
         isActive: true
     },
     {
@@ -354,7 +396,7 @@ export const mockServiceItems: ServiceItem[] = [
         name: 'Electrocardiogram',
         description: '12-lead ECG with interpretation',
         category: 'Diagnostic',
-        price: 125.00,
+        price: 16250.00,
         duration: 15,
         isActive: true
     },
@@ -364,7 +406,7 @@ export const mockServiceItems: ServiceItem[] = [
         name: 'Immunization Administration',
         description: 'Administration of vaccine/toxoid',
         category: 'Immunizations',
-        price: 25.00,
+        price: 3250.00,
         duration: 10,
         isActive: true
     }
@@ -545,6 +587,7 @@ export const mockQueue: QueueItem[] = [
 ];
 
 // Mock Invoices
+// Amounts converted from USD to KES (1 USD = 130 KES)
 export const mockInvoices: Invoice[] = [
     {
         id: 'inv-1',
@@ -559,38 +602,38 @@ export const mockInvoices: Invoice[] = [
                 serviceName: 'Office Visit - Established Patient',
                 cptCode: '99213',
                 quantity: 1,
-                unitPrice: 150.00,
-                totalPrice: 150.00,
-                insuranceCovered: 120.00,
-                patientPortion: 30.00
+                unitPrice: 19500.00,
+                totalPrice: 19500.00,
+                insuranceCovered: 15600.00,
+                patientPortion: 3900.00
             },
             {
                 serviceId: 'service-3',
                 serviceName: 'Comprehensive Metabolic Panel',
                 cptCode: '80053',
                 quantity: 1,
-                unitPrice: 75.00,
-                totalPrice: 75.00,
-                insuranceCovered: 60.00,
-                patientPortion: 15.00
+                unitPrice: 9750.00,
+                totalPrice: 9750.00,
+                insuranceCovered: 7800.00,
+                patientPortion: 1950.00
             }
         ],
-        subtotal: 225.00,
+        subtotal: 29250.00,
         tax: 0.00,
-        total: 225.00,
-        insuranceCoverage: 180.00,
-        patientResponsibility: 45.00,
+        total: 29250.00,
+        insuranceCoverage: 23400.00,
+        patientResponsibility: 5850.00,
         status: PaymentStatus.PAID,
         payments: [
             {
                 id: 'pay-1',
                 invoiceId: 'inv-1',
-                amount: 45.00,
-                method: PaymentMethod.CREDIT_CARD,
+                amount: 5850.00,
+                method: PaymentMethod.M_PESA,
                 transactionId: 'TXN123456789',
                 processedAt: '2024-10-23T11:30:00Z',
                 processedBy: 'user-4',
-                notes: 'Patient copay and deductible'
+                notes: 'Patient copay and deductible - M-Pesa payment'
             }
         ],
         createdAt: '2024-10-23T11:00:00Z',
@@ -670,7 +713,7 @@ export const mockInsuranceClaims: InsuranceClaim[] = [
         claimNumber: 'CLM-2024-001',
         submissionDate: '2024-10-23',
         status: 'approved',
-        approvedAmount: 180.00,
+        approvedAmount: 23400.00, // Converted from USD 180.00 to KES (1 USD = 130 KES)
         paidDate: '2024-10-25',
         eobReceived: true,
         notes: 'Claim processed successfully'

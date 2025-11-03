@@ -6,7 +6,8 @@ import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import {
     Heart, Users, UserCheck, Stethoscope, Calendar,
     CreditCard, DollarSign, BarChart3, Settings,
-    LogOut, Menu, Bell, User as UserIcon
+    LogOut, Menu, Bell, User as UserIcon,
+    FileText, Beaker, CalendarPlus, ClipboardCheck, Activity
 } from 'lucide-react';
 import { User, UserRole } from '@/types';
 import { useLocation, Link } from 'react-router-dom';
@@ -32,15 +33,41 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                 { icon: UserCheck, label: 'Check-in', path: '/check-in' },
                 { icon: Stethoscope, label: 'Triage System', path: '/triage' },
                 { icon: Calendar, label: 'Queue Management', path: '/queue' },
+                { icon: Calendar, label: 'Appointments', path: '/appointments' },
+                { icon: Stethoscope, label: 'Specialist Consultation', path: '/specialist-consultation' },
+                { icon: Beaker, label: 'Diagnostic Testing', path: '/diagnostic-testing' },
+                { icon: FileText, label: 'Documentation', path: '/documentation' },
+                { icon: CalendarPlus, label: 'Follow-Up Scheduling', path: '/follow-up-scheduling' },
+                { icon: ClipboardCheck, label: 'Treatment Planning', path: '/treatment-planning' },
                 { icon: CreditCard, label: 'Billing System', path: '/billing' },
                 { icon: DollarSign, label: 'Payments', path: '/payments' },
                 { icon: BarChart3, label: 'Financial Reports', path: '/financial-reports' },
                 { icon: Settings, label: 'Settings', path: '/settings' }
             ],
             [UserRole.PRACTITIONER]: [
-                { icon: Stethoscope, label: 'Patient Care', path: '/practitioner' },
+                // Base items for general practitioners (non-specialized or other specializations)
+                ...(user.specialization !== 'Radiology' && user.specialization !== 'Pharmacy' ? [
+                    { icon: Stethoscope, label: 'Patient Care', path: '/practitioner' },
+                    { icon: Stethoscope, label: 'Specialist Consultation', path: '/specialist-consultation' },
+                    { icon: FileText, label: 'Documentation', path: '/documentation' },
+                    { icon: CalendarPlus, label: 'Follow-Up Scheduling', path: '/follow-up-scheduling' },
+                    { icon: ClipboardCheck, label: 'Treatment Planning', path: '/treatment-planning' }
+                ] : []),
+                // Items for Radiology practitioners - imaging focus
+                ...(user.specialization === 'Radiology' ? [
+                    { icon: Beaker, label: 'Diagnostic Testing', path: '/diagnostic-testing' }
+                ] : []),
+                // Items for Pharmacy practitioners - prescription management
+                ...(user.specialization === 'Pharmacy' ? [
+                    { icon: ClipboardCheck, label: 'Treatment Planning', path: '/treatment-planning' }
+                ] : []),
+                // Common items for all practitioners
                 { icon: Calendar, label: 'Appointments', path: '/appointments' },
-                { icon: Users, label: 'Patient Records', path: '/patients' }
+                { icon: Users, label: 'Patient Records', path: '/patients' },
+                // Diagnostic testing - available to general practitioners and Radiology, filtered by specialization in component
+                ...(user.specialization && user.specialization !== 'Radiology' && user.specialization !== 'Pharmacy' ? [
+                    { icon: Beaker, label: 'Diagnostic Testing', path: '/diagnostic-testing' }
+                ] : [])
             ],
             [UserRole.TRIAGE_NURSE]: [
                 { icon: Stethoscope, label: 'Triage System', path: '/triage' },
@@ -56,7 +83,13 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
             [UserRole.RECEPTIONIST]: [
                 { icon: UserCheck, label: 'Patient Check-in', path: '/check-in' },
                 { icon: Users, label: 'Patient Management', path: '/patients' },
-                { icon: Calendar, label: 'Queue Status', path: '/queue' }
+                { icon: Calendar, label: 'Queue Status', path: '/queue' },
+                { icon: Calendar, label: 'Appointments', path: '/appointments' },
+                { icon: CalendarPlus, label: 'Follow-Up Scheduling', path: '/follow-up-scheduling' }
+            ],
+            [UserRole.LAB_TECHNICIAN]: [
+                { icon: Beaker, label: 'Diagnostic Testing', path: '/diagnostic-testing' },
+                { icon: Users, label: 'Patient Records', path: '/patients' }
             ],
             [UserRole.PATIENT]: [
                 { icon: UserIcon, label: 'Patient Portal', path: '/patient-portal' },
@@ -68,14 +101,18 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
         return [...baseItems, ...(roleBasedItems[user.role] || [])];
     };
 
-    const getRoleColor = (role: UserRole) => {
+    const getRoleColor = (role: UserRole, specialization?: string) => {
         switch (role) {
             case UserRole.ADMIN: return 'bg-purple-100 text-purple-800 border-purple-200';
-            case UserRole.PRACTITIONER: return 'bg-blue-100 text-blue-800 border-blue-200';
+            case UserRole.PRACTITIONER: 
+                if (specialization === 'Radiology') return 'bg-indigo-100 text-indigo-800 border-indigo-200';
+                if (specialization === 'Pharmacy') return 'bg-pink-100 text-pink-800 border-pink-200';
+                return 'bg-blue-100 text-blue-800 border-blue-200';
             case UserRole.TRIAGE_NURSE: return 'bg-red-100 text-red-800 border-red-200';
             case UserRole.BILLING_STAFF: return 'bg-green-100 text-green-800 border-green-200';
             case UserRole.RECEPTIONIST: return 'bg-orange-100 text-orange-800 border-orange-200';
             case UserRole.PATIENT: return 'bg-gray-100 text-gray-800 border-gray-200';
+            case UserRole.LAB_TECHNICIAN: return 'bg-cyan-100 text-cyan-800 border-cyan-200';
             default: return 'bg-gray-100 text-gray-800 border-gray-200';
         }
     };
@@ -108,8 +145,8 @@ const Layout: React.FC<LayoutProps> = ({ children, user, onLogout }) => {
                         <p className="text-xs text-gray-500 truncate">{user.email}</p>
                     </div>
                 </div>
-                <Badge className={`text-xs ${getRoleColor(user.role)}`}>
-                    {user.role.replace('_', ' ').toUpperCase()}
+                <Badge className={`text-xs ${getRoleColor(user.role, user.specialization)}`}>
+                    {user.specialization ? user.specialization.toUpperCase() : user.role.replace('_', ' ').toUpperCase()}
                 </Badge>
             </div>
 

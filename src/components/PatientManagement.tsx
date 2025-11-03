@@ -9,14 +9,21 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Checkbox } from '@/components/ui/checkbox';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
     Users, Plus, Search, UserCheck, Heart,
-    Phone, Mail, MapPin, Calendar, Clock,
-    AlertCircle, CheckCircle, User as UserIcon
+    Phone, Mail, MapPin, Calendar as CalendarIcon, Clock,
+    AlertCircle, CheckCircle, User as UserIcon,
+    FileText, CreditCard, Clipboard, AlertTriangle
 } from 'lucide-react';
-import { User, Patient, VitalSigns, PatientRegistrationForm, CheckInForm } from '@/types';
-import { PatientService, AppointmentService } from '@/lib/mockServices';
+import { User, Patient, VitalSigns, PatientRegistrationForm, CheckInForm, UserRole, Insurance, InsuranceStatus, Appointment, AppointmentStatus } from '@/types';
+import { PatientService, AppointmentService, mockPractitioners } from '@/lib/mockServices';
 import { toast } from 'sonner';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { format } from 'date-fns';
 
 interface PatientManagementProps {
     user: User;
@@ -30,6 +37,12 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
     const [showRegistrationDialog, setShowRegistrationDialog] = useState(false);
     const [showCheckInDialog, setShowCheckInDialog] = useState(false);
     const [showVitalsDialog, setShowVitalsDialog] = useState(false);
+    const [showScheduleAppointmentDialog, setShowScheduleAppointmentDialog] = useState(false);
+    const [patientAppointment, setPatientAppointment] = useState<Appointment | null>(null);
+    
+    // Track if forms should be reset when dialogs close
+    const [shouldResetRegistration, setShouldResetRegistration] = useState(false);
+    const [shouldResetCheckIn, setShouldResetCheckIn] = useState(false);
 
     // Registration form state
     const [registrationForm, setRegistrationForm] = useState<PatientRegistrationForm>({
@@ -68,6 +81,34 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
         hasContactInfoChanged: false,
         hasMedicationsChanged: false
     });
+    
+    // Appointment scheduling form state
+    const [appointmentForm, setAppointmentForm] = useState({
+        practitionerId: '',
+        appointmentType: 'General Consultation',
+        scheduledDate: new Date(),
+        scheduledTime: '',
+        duration: 30,
+        notes: ''
+    });
+
+    const appointmentTypes = [
+        'General Consultation',
+        'Follow-up',
+        'Specialist Consultation',
+        'Vaccination',
+        'Laboratory Tests',
+        'Imaging',
+        'Procedure',
+        'Emergency'
+    ];
+
+    const timeSlots = [
+        '08:00', '08:30', '09:00', '09:30', '10:00', '10:30', 
+        '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
+        '14:00', '14:30', '15:00', '15:30', '16:00', '16:30',
+        '17:00', '17:30'
+    ];
 
     // Vital signs form state
     const [vitalsForm, setVitalsForm] = useState<VitalSigns>({
@@ -104,6 +145,7 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
             const response = await PatientService.createPatient(registrationForm);
             if (response.success && response.data) {
                 toast.success('Patient registered successfully');
+                setShouldResetRegistration(true);
                 setShowRegistrationDialog(false);
                 loadPatients();
                 resetRegistrationForm();
@@ -115,16 +157,147 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
         }
     };
 
+    const checkPatientAppointment = async (patientId: string) => {
+        try {
+            const today = format(new Date(), 'yyyy-MM-dd');
+            const appointmentsResponse = await AppointmentService.getAppointments(today);
+            
+            if (appointmentsResponse.success && appointmentsResponse.data) {
+                const appointment = appointmentsResponse.data.find(
+                    apt => apt.patientId === patientId && 
+                    apt.status !== AppointmentStatus.CANCELLED &&
+                    apt.status !== AppointmentStatus.COMPLETED
+                );
+                
+                if (appointment) {
+                    setPatientAppointment(appointment);
+                    return appointment;
+                } else {
+                    setPatientAppointment(null);
+                    return null;
+                }
+            }
+            return null;
+        } catch (error) {
+            console.error('Error checking appointment:', error);
+            return null;
+        }
+    };
+
+    const handleScheduleAppointment = async (autoCheckIn: boolean = false) => {
+        if (!checkInForm.patientId || !appointmentForm.practitionerId || !appointmentForm.scheduledTime) {
+            toast.error('Please fill in all required fields');
+            return false;
+        }
+
+        try {
+            const appointmentData = {
+                patientId: checkInForm.patientId,
+                practitionerId: appointmentForm.practitionerId,
+                scheduledDate: format(appointmentForm.scheduledDate, 'yyyy-MM-dd'),
+                scheduledTime: appointmentForm.scheduledTime,
+                duration: appointmentForm.duration,
+                appointmentType: appointmentForm.appointmentType,
+                status: AppointmentStatus.SCHEDULED,
+                notes: appointmentForm.notes || 'Walk-in appointment scheduled during check-in'
+            };
+
+            const response = await AppointmentService.createAppointment(appointmentData);
+            
+            if (response.success && response.data) {
+                setPatientAppointment(response.data);
+                toast.success('Appointment scheduled successfully');
+                
+                // Reset appointment form
+                setAppointmentForm({
+                    practitionerId: '',
+                    appointmentType: 'General Consultation',
+                    scheduledDate: new Date(),
+                    scheduledTime: '',
+                    duration: 30,
+                    notes: ''
+                });
+                
+                // If auto check-in is requested, proceed with check-in
+                if (autoCheckIn) {
+                    setShowScheduleAppointmentDialog(false);
+                    // Use the newly created appointment for check-in
+                    const checkInResponse = await AppointmentService.checkInPatient(response.data.id, checkInForm);
+                    if (checkInResponse.success) {
+                        toast.success('Patient checked in successfully');
+                        setShowCheckInDialog(false);
+                        resetCheckInForm();
+                        setPatientAppointment(null);
+                        loadPatients();
+                    } else {
+                        toast.error(checkInResponse.error || 'Check-in failed');
+                    }
+                } else {
+                    setShowScheduleAppointmentDialog(false);
+                }
+                
+                return true;
+            } else {
+                toast.error('Failed to schedule appointment');
+                return false;
+            }
+        } catch (error) {
+            toast.error('An error occurred while scheduling the appointment');
+            return false;
+        }
+    };
+
     const handleCheckIn = async (e: React.FormEvent) => {
         e.preventDefault();
+        
+        if (!checkInForm.patientId) {
+            toast.error('Please select a patient');
+            return;
+        }
+
         try {
-            // In a real app, you'd find the appointment ID based on the patient
-            const mockAppointmentId = `apt-${Date.now()}`;
-            const response = await AppointmentService.checkInPatient(mockAppointmentId, checkInForm);
+            // Check if patient has an appointment for today
+            let appointment = await checkPatientAppointment(checkInForm.patientId);
+            
+            // If no appointment, show scheduling dialog
+            if (!appointment) {
+                setShowScheduleAppointmentDialog(true);
+                return;
+            }
+
+            // Proceed with check-in
+            const response = await AppointmentService.checkInPatient(appointment.id, checkInForm);
             if (response.success) {
                 toast.success('Patient checked in successfully');
+                setShouldResetCheckIn(true);
                 setShowCheckInDialog(false);
                 resetCheckInForm();
+                setPatientAppointment(null);
+                loadPatients();
+            } else {
+                toast.error(response.error || 'Check-in failed');
+            }
+        } catch (error) {
+            toast.error('An error occurred during check-in');
+        }
+    };
+
+    const handleCheckInWithScheduledAppointment = async () => {
+        if (!patientAppointment) {
+            toast.error('No appointment available for check-in');
+            return;
+        }
+
+        try {
+            const response = await AppointmentService.checkInPatient(patientAppointment.id, checkInForm);
+            if (response.success) {
+                toast.success('Patient checked in successfully');
+                setShouldResetCheckIn(true);
+                setShowCheckInDialog(false);
+                setShowScheduleAppointmentDialog(false);
+                resetCheckInForm();
+                setPatientAppointment(null);
+                loadPatients();
             } else {
                 toast.error(response.error || 'Check-in failed');
             }
@@ -173,7 +346,19 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
         });
     };
 
-    const filteredPatients = patients.filter(patient =>
+    // Filter patients based on user role
+    const getFilteredPatientsByRole = () => {
+        if (user.role === UserRole.PATIENT) {
+            // Patients can only see their own record
+            return patients.filter(patient => patient.email?.toLowerCase() === user.email.toLowerCase());
+        }
+        // All other roles can see all patients
+        return patients;
+    };
+
+    const roleFilteredPatients = getFilteredPatientsByRole();
+    
+    const filteredPatients = roleFilteredPatients.filter(patient =>
         patient.firstName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         patient.lastName.toLowerCase().includes(searchTerm.toLowerCase()) ||
         patient.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -193,13 +378,36 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
             {/* Header */}
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-900">Patient Management</h1>
-                    <p className="text-gray-500">Manage patient records and check-ins</p>
+                    <h1 className="text-3xl font-bold text-gray-900">
+                        {user.role === UserRole.PATIENT ? 'My Patient Record' : 'Patient Management'}
+                    </h1>
+                    <p className="text-gray-500">
+                        {user.role === UserRole.PATIENT ? 'View your patient information and records' : 'Manage patient records and check-ins'}
+                    </p>
                 </div>
+                {/* Only show action buttons for staff roles */}
+                {user.role !== UserRole.PATIENT && (
                 <div className="flex space-x-2">
-                    <Dialog open={showCheckInDialog} onOpenChange={setShowCheckInDialog}>
+                    {(user.role === UserRole.ADMIN || user.role === UserRole.RECEPTIONIST) && (
+                    <Dialog open={showCheckInDialog} onOpenChange={(open) => {
+                        setShowCheckInDialog(open);
+                        // Only reset form when dialog closes AND we've successfully checked in
+                        if (!open && shouldResetCheckIn) {
+                            resetCheckInForm();
+                            setShouldResetCheckIn(false);
+                            setPatientAppointment(null);
+                        } else if (open && !shouldResetCheckIn && !checkInForm.patientId) {
+                            // When opening dialog from header button (not patient card), ensure fresh form
+                            resetCheckInForm();
+                        }
+                    }}>
                         <DialogTrigger asChild>
-                            <Button variant="outline">
+                            <Button variant="outline" onClick={() => {
+                                // Reset form when explicitly opening from header button
+                                resetCheckInForm();
+                                setShouldResetCheckIn(false);
+                                setPatientAppointment(null);
+                            }}>
                                 <UserCheck className="w-4 h-4 mr-2" />
                                 Check In Patient
                             </Button>
@@ -216,7 +424,12 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
                                     <Label htmlFor="patientSelect">Select Patient</Label>
                                     <Select
                                         value={checkInForm.patientId}
-                                        onValueChange={(value) => setCheckInForm(prev => ({ ...prev, patientId: value }))}
+                                        onValueChange={async (value) => {
+                                            setCheckInForm(prev => ({ ...prev, patientId: value }));
+                                            // Check for existing appointment when patient is selected
+                                            const appointment = await checkPatientAppointment(value);
+                                            setPatientAppointment(appointment);
+                                        }}
                                     >
                                         <SelectTrigger>
                                             <SelectValue placeholder="Choose patient..." />
@@ -230,6 +443,35 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
                                         </SelectContent>
                                     </Select>
                                 </div>
+
+                                {/* Show appointment status if exists */}
+                                {patientAppointment && (
+                                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                                        <div className="flex items-center space-x-2">
+                                            <CalendarIcon className="w-4 h-4 text-blue-600" />
+                                            <div className="flex-1">
+                                                <p className="text-sm font-medium text-blue-900">Appointment Found</p>
+                                                <p className="text-xs text-blue-700">
+                                                    {patientAppointment.scheduledDate} at {patientAppointment.scheduledTime} - {patientAppointment.appointmentType}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {!patientAppointment && checkInForm.patientId && (
+                                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                                        <div className="flex items-center space-x-2">
+                                            <AlertTriangle className="w-4 h-4 text-yellow-600" />
+                                            <div className="flex-1">
+                                                <p className="text-sm font-medium text-yellow-900">No Appointment Found</p>
+                                                <p className="text-xs text-yellow-700">
+                                                    This patient doesn't have an appointment for today. You can schedule one during check-in.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
 
                                 <div>
                                     <Label htmlFor="chiefComplaint">Chief Complaint</Label>
@@ -250,18 +492,220 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
                                         min="0"
                                         max="10"
                                         value={checkInForm.painLevel}
-                                        onChange={(e) => setCheckInForm(prev => ({ ...prev, painLevel: parseInt(e.target.value) }))}
+                                        onChange={(e) => setCheckInForm(prev => ({ ...prev, painLevel: parseInt(e.target.value) || 0 }))}
                                     />
                                 </div>
 
-                                <Button type="submit" className="w-full">
-                                    Check In Patient
-                                </Button>
+                                <div className="flex space-x-2">
+                                    {patientAppointment ? (
+                                        <Button type="submit" className="flex-1">
+                                            Check In Patient
+                                        </Button>
+                                    ) : (
+                                        <>
+                                            <Button 
+                                                type="button" 
+                                                variant="outline" 
+                                                className="flex-1"
+                                                onClick={() => {
+                                                    setShowScheduleAppointmentDialog(true);
+                                                }}
+                                            >
+                                                Schedule Appointment First
+                                            </Button>
+                                            <Button 
+                                                type="button" 
+                                                variant="secondary"
+                                                onClick={() => {
+                                                    // Allow walk-in without appointment
+                                                    setShowScheduleAppointmentDialog(true);
+                                                }}
+                                            >
+                                                Walk-in
+                                            </Button>
+                                        </>
+                                    )}
+                                </div>
                             </form>
+                            
+                            {/* Schedule Appointment Dialog */}
+                            <Dialog open={showScheduleAppointmentDialog} onOpenChange={(open) => {
+                                if (!open) {
+                                    // Only close if not in the middle of scheduling
+                                    setShowScheduleAppointmentDialog(false);
+                                }
+                            }}>
+                                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                                    <DialogHeader>
+                                        <DialogTitle>Schedule Appointment</DialogTitle>
+                                        <DialogDescription>
+                                            {checkInForm.patientId ? 'Schedule an appointment for this patient' : 'Please select a patient first'}
+                                        </DialogDescription>
+                                    </DialogHeader>
+                                    
+                                    {checkInForm.patientId && (
+                                        <div className="space-y-4">
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="practitioner">Specialist</Label>
+                                                    <Select
+                                                        value={appointmentForm.practitionerId}
+                                                        onValueChange={(value) => setAppointmentForm(prev => ({ ...prev, practitionerId: value }))}
+                                                    >
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select specialist" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {mockPractitioners.map(practitioner => (
+                                                                <SelectItem key={practitioner.id} value={practitioner.id}>
+                                                                    Dr. {practitioner.firstName} {practitioner.lastName} - {practitioner.specialties.join(', ')}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+
+                                                <div className="space-y-2">
+                                                    <Label htmlFor="appointmentType">Appointment Type</Label>
+                                                    <Select
+                                                        value={appointmentForm.appointmentType}
+                                                        onValueChange={(value) => setAppointmentForm(prev => ({ ...prev, appointmentType: value }))}
+                                                    >
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select type" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {appointmentTypes.map(type => (
+                                                                <SelectItem key={type} value={type}>
+                                                                    {type}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+
+                                                <div className="space-y-2">
+                                                    <Label>Date</Label>
+                                                    <Popover>
+                                                        <PopoverTrigger asChild>
+                                                            <Button
+                                                                variant="outline"
+                                                                className="w-full justify-start text-left font-normal"
+                                                            >
+                                                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                                                {appointmentForm.scheduledDate ? (
+                                                                    format(appointmentForm.scheduledDate, "PPP")
+                                                                ) : (
+                                                                    <span>Pick a date</span>
+                                                                )}
+                                                            </Button>
+                                                        </PopoverTrigger>
+                                                        <PopoverContent className="w-auto p-0">
+                                                            <Calendar
+                                                                mode="single"
+                                                                selected={appointmentForm.scheduledDate}
+                                                                onSelect={(date) => date && setAppointmentForm(prev => ({ ...prev, scheduledDate: date }))}
+                                                                disabled={(date) => date < new Date()}
+                                                                initialFocus
+                                                            />
+                                                        </PopoverContent>
+                                                    </Popover>
+                                                </div>
+
+                                                <div className="space-y-2">
+                                                    <Label>Time</Label>
+                                                    <Select
+                                                        value={appointmentForm.scheduledTime}
+                                                        onValueChange={(value) => setAppointmentForm(prev => ({ ...prev, scheduledTime: value }))}
+                                                    >
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select time" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {timeSlots.map(time => (
+                                                                <SelectItem key={time} value={time}>
+                                                                    {time}
+                                                                </SelectItem>
+                                                            ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+
+                                                <div className="space-y-2">
+                                                    <Label>Duration (minutes)</Label>
+                                                    <Select
+                                                        value={appointmentForm.duration.toString()}
+                                                        onValueChange={(value) => setAppointmentForm(prev => ({ ...prev, duration: parseInt(value) }))}
+                                                    >
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select duration" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="15">15 minutes</SelectItem>
+                                                            <SelectItem value="30">30 minutes</SelectItem>
+                                                            <SelectItem value="45">45 minutes</SelectItem>
+                                                            <SelectItem value="60">60 minutes</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label htmlFor="notes">Notes</Label>
+                                                <Textarea
+                                                    id="notes"
+                                                    value={appointmentForm.notes}
+                                                    onChange={(e) => setAppointmentForm(prev => ({ ...prev, notes: e.target.value }))}
+                                                    placeholder="Additional notes for the appointment"
+                                                    rows={3}
+                                                />
+                                            </div>
+
+                                            <div className="flex justify-end space-x-2">
+                                                <Button variant="outline" onClick={() => setShowScheduleAppointmentDialog(false)}>
+                                                    Cancel
+                                                </Button>
+                                                <Button variant="outline" onClick={async () => {
+                                                    const success = await handleScheduleAppointment(false);
+                                                    if (success) {
+                                                        // Just schedule, don't check in
+                                                        setShowScheduleAppointmentDialog(false);
+                                                    }
+                                                }}>
+                                                    Schedule Only
+                                                </Button>
+                                                <Button onClick={async () => {
+                                                    await handleScheduleAppointment(true);
+                                                }}>
+                                                    Schedule & Check In
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </DialogContent>
+                            </Dialog>
                         </DialogContent>
                     </Dialog>
+                    )}
 
-                    <Dialog open={showRegistrationDialog} onOpenChange={setShowRegistrationDialog}>
+                    {(user.role === UserRole.ADMIN || user.role === UserRole.RECEPTIONIST) && (
+                    <Dialog open={showRegistrationDialog} onOpenChange={(open) => {
+                        setShowRegistrationDialog(open);
+                        // Only reset form when dialog closes AND registration was successful
+                        if (!open && shouldResetRegistration) {
+                            resetRegistrationForm();
+                            setShouldResetRegistration(false);
+                        } else if (open && !shouldResetRegistration) {
+                            // When opening dialog for new registration, reset form if it's not already reset
+                            // Check if form is already empty (means it's a fresh start)
+                            if (registrationForm.firstName || registrationForm.lastName) {
+                                // Form has data, don't reset - preserve user's work
+                            } else {
+                                // Form is empty, ensure it stays fresh
+                                resetRegistrationForm();
+                            }
+                        }
+                    }}>
                         <DialogTrigger asChild>
                             <Button>
                                 <Plus className="w-4 h-4 mr-2" />
@@ -412,24 +856,28 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
                             </form>
                         </DialogContent>
                     </Dialog>
+                    )}
                 </div>
+                )}
             </div>
 
-            {/* Search */}
-            <div className="flex items-center space-x-4">
-                <div className="relative flex-1 max-w-md">
-                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                    <Input
-                        placeholder="Search patients..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10"
-                    />
+            {/* Search - Only for staff roles */}
+            {user.role !== UserRole.PATIENT && (
+                <div className="flex items-center space-x-4">
+                    <div className="relative flex-1 max-w-md">
+                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                        <Input
+                            placeholder="Search patients..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="pl-10"
+                        />
+                    </div>
+                    <Button onClick={loadPatients} variant="outline">
+                        Refresh
+                    </Button>
                 </div>
-                <Button onClick={loadPatients} variant="outline">
-                    Refresh
-                </Button>
-            </div>
+            )}
 
             {/* Patient List */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -468,17 +916,26 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
                             </div>
 
                             <div className="mt-4 flex space-x-2">
+                                {/* Only show Check In button for Receptionist and Admin */}
+                                {(user.role === UserRole.ADMIN || user.role === UserRole.RECEPTIONIST) && (
                                 <Button
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => {
+                                    onClick={async () => {
+                                        // Reset check-in form when opening for a new patient
+                                        resetCheckInForm();
                                         setCheckInForm(prev => ({ ...prev, patientId: patient.id }));
+                                        // Check for existing appointment
+                                        const appointment = await checkPatientAppointment(patient.id);
+                                        setPatientAppointment(appointment);
+                                        setShouldResetCheckIn(false);
                                         setShowCheckInDialog(true);
                                     }}
                                 >
                                     <UserCheck className="w-3 h-3 mr-1" />
                                     Check In
                                 </Button>
+                                )}
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -499,10 +956,12 @@ const PatientManagement: React.FC<PatientManagementProps> = ({ user }) => {
                     <p className="text-gray-500 mb-4">
                         {searchTerm ? 'No patients match your search criteria.' : 'Get started by registering your first patient.'}
                     </p>
-                    <Button onClick={() => setShowRegistrationDialog(true)}>
-                        <Plus className="w-4 h-4 mr-2" />
-                        Register New Patient
-                    </Button>
+                    {user.role !== UserRole.PATIENT && (
+                        <Button onClick={() => setShowRegistrationDialog(true)}>
+                            <Plus className="w-4 h-4 mr-2" />
+                            Register New Patient
+                        </Button>
+                    )}
                 </div>
             )}
 
